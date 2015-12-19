@@ -128,7 +128,7 @@ int send_uevent(int fd, __u16 type, __u16 code, __s32 value)
 	event.code = code;
 	event.value = value;
 
-	if (write(fd, &event, sizeof(event)) != sizeof(event)) {
+	if (write(fd, &event, sizeof(event)) < 0) {
 		fprintf(stderr, "Error on send_event %lu", sizeof(event));
 		return -1;
 	}
@@ -158,14 +158,16 @@ void handle_hidraw_device(char *path)
 	device.id.vendor = 1;
 	device.id.product = 1;
 	device.id.version = 1;
+	device.absmin[ABS_X] = 0;
+	device.absmin[ABS_Y] = 0;
 	device.absmax[ABS_X] = 800;
 	device.absmax[ABS_Y] = 480;
-	device.absmax[ABS_MT_POSITION_X] = 800;
-	device.absmax[ABS_MT_POSITION_Y] = 480;
-	device.absmax[ABS_MT_SLOT] = 5;
-	device.absmax[ABS_MT_TRACKING_ID] = 5;
+	//device.absmax[ABS_MT_POSITION_X] = 800;
+	//device.absmax[ABS_MT_POSITION_Y] = 480;
+	//device.absmax[ABS_MT_SLOT] = 5;
+	//device.absmax[ABS_MT_TRACKING_ID] = 5;
 
-	uinput_fd = open("/dev/input/uinput", O_WRONLY | O_NONBLOCK);
+	uinput_fd = open("/dev/input/uinput",  O_WRONLY | O_NONBLOCK);
 	if (uinput_fd < 0) {
 		uinput_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
 		if (uinput_fd < 0)
@@ -190,7 +192,7 @@ void handle_hidraw_device(char *path)
 	if (ioctl(uinput_fd, UI_SET_ABSBIT, ABS_Y) < 0)
 		die("error: abs y\n");
 
-	if (ioctl(uinput_fd, UI_SET_ABSBIT, ABS_MT_SLOT) < 0)
+	/*if (ioctl(uinput_fd, UI_SET_ABSBIT, ABS_MT_SLOT) < 0)
 		die("error: abs slot\n");
 
 	if (ioctl(uinput_fd, UI_SET_ABSBIT, ABS_MT_TRACKING_ID) < 0)
@@ -201,7 +203,7 @@ void handle_hidraw_device(char *path)
 
 	if (ioctl(uinput_fd, UI_SET_ABSBIT, ABS_MT_POSITION_Y) < 0)
 		die("error: abs mt y\n");
-
+	*/
 	if (ioctl(uinput_fd, UI_SET_KEYBIT, BTN_TOUCH) < 0)
 		die("error: evbit touch\n");
 
@@ -215,6 +217,7 @@ void handle_hidraw_device(char *path)
 		int x[5];
 		int y[5];
 		int i;
+		
 		int n = read(usbraw_fd, data, sizeof(data));
 		if (n < 0)
 			break; /* Unplug? */
@@ -222,27 +225,47 @@ void handle_hidraw_device(char *path)
 			croak("Short input : %d\n", n);
 			continue;
 		}
+		if(data[24] == 0) {
+		  continue;
+		}
 
 		/* Decode raw data */
 		state[0] = (data[7] & 1) != 0;
 		x[0] = data[2] * 256 + data[3];
 		y[0] = data[4] * 256 + data[5];
-		for (i = 0; i < 4; i++) {
-			state[i + 1] = (data[7] & (2 << i)) != 0;
-			x[i + 1] = data[i * 2 + 8] * 256 + data[i * 2 + 9];
-			y[i + 1] = data[i * 2 + 10] * 256 + data[i * 2 + 11];
+		//for (i = 0; i < 4; i++) {
+		//	state[i + 1] = (data[7] & (2 << i)) != 0;
+		//	x[i + 1] = data[i * 2 + 8] * 256 + data[i * 2 + 9];
+		//	y[i + 1] = data[i * 2 + 10] * 256 + data[i * 2 + 11];
+		//}
+		send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
+		send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
+		if (data[1]) {
+		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
+		} else {
+		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
 		}
+		send_uevent(uinput_fd, EV_SYN, 0, 0);
+		/*if(data[1]) {
+
+		send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
+		send_uevent(uinput_fd, EV_SYN, 0, 0);
+		} else {
+		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
+		  send_uevent(uinput_fd, EV_SYN, 0, 0);
+		  }*/
+		//send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
 
 		/* Send input events */
-		for (i = 0; i < 5; i++) {
+		/*for (i = 0; i < 5; i++) {
 			if (state[i]) {
 				send_uevent(uinput_fd, EV_ABS, ABS_X, x[i]);
 				send_uevent(uinput_fd, EV_ABS, ABS_Y, y[i]);
 				send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
 				break;
 			}
-		}
-		if (i == 5)
+			}*/
+		/*if (i == 5)
 			send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
 		for (i = 0; i < 5; i++) {
 			if (state[i]) {
@@ -255,8 +278,9 @@ void handle_hidraw_device(char *path)
 				send_uevent(uinput_fd, EV_ABS, ABS_MT_TRACKING_ID, -1);
 			}
 			prev_state[i] = state[i];
-		}
-		send_uevent(uinput_fd, EV_SYN, SYN_MT_REPORT, 0);
+			}*/
+		//send_uevent(uinput_fd, EV_SYN, SYN_MT_REPORT, 0);
+		usleep(15000);
 	}
 	if (usbraw_fd >= 0)
 		close(usbraw_fd);
@@ -264,6 +288,7 @@ void handle_hidraw_device(char *path)
 		ioctl(uinput_fd, UI_DEV_DESTROY);
 		close(uinput_fd);
 	}
+	
 }
 
 char rpi_dev[64];
