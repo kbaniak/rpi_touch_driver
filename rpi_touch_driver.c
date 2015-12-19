@@ -238,9 +238,11 @@ void handle_hidraw_device(char *path)
 		//	x[i + 1] = data[i * 2 + 8] * 256 + data[i * 2 + 9];
 		//	y[i + 1] = data[i * 2 + 10] * 256 + data[i * 2 + 11];
 		//}
-		send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
-		send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
+		//send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
+		//send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
 		if (data[1]) {
+		  send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
+		  send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
 		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
 		} else {
 		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
