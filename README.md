@@ -54,8 +54,18 @@ To use:
 * (not tested) If calibration is necessary, install 99-rpi-touch.conf to /etc/X11/xorg.conf.d,
 calibrate using whatever calibration program you fancy, uncomment the calibration option line, and replace the calibration constants in 99-rpi-touch.conf
 
+NOTE: Updated driver with the following changes:
+* removed multitouch support
+* hardcoded event transformation for Eleduino7" in JiveLite (see https://sites.google.com/site/picoreplayer/home)
 
-Copyright (c) 2015 Bjarne Steinsbo
+links:
+* Original driver: https://github.com/bsteinsbo/rpi_touch_driver
+* Protocol spects: http://www.waveshare.com/w/upload/7/7c/7inch-Capacitive-touch-screen-HID-protocol.pdf
+* uinput programming: https://www.kernel.org/doc/Documentation/input/input-programming.txt
+* uinput guide: http://thiemonge.org/getting-started-with-uinput
+* HIDraw programming: https://www.kernel.org/doc/Documentation/hid/hidraw.txt
+* HIDraw example: http://git.nosuchfile.org/?p=uinput-sample.git;a=blob_plain;f=uinput-sample.c;hb=HEAD
 
-Code and inspiration from http://thiemonge.org/getting-started-with-uinput
-and the CyanogenMod userspace touchscreen driver for cypress ctma395.
+
+Copyright (c) 2015 Gaspar de Elias
+

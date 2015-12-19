@@ -70,6 +70,8 @@ int usbraw_fd;
 int fifo_fd;
 
 #define EVENT_DEBUG 0
+#define CORRECTION_X 1.3f
+#define CORRECTION_Y 1.3f
 
 int send_uevent(int fd, __u16 type, __u16 code, __s32 value)
 {
@@ -241,8 +243,8 @@ void handle_hidraw_device(char *path)
 		//send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
 		//send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
 		if (data[1]) {
-		  send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
-		  send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
+		  send_uevent(uinput_fd, EV_ABS, ABS_X, x[0] * CORRECTION_X);
+		  send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0] * CORRECTION_Y);
 		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
 		} else {
 		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
