@@ -19,7 +19,7 @@ The manufacturer (WaveShare?) is breaking every rule:
   - GPL violation by distributing modified binary-only kernel (for RPi) where
     usbtouchscreen.c has been modified to support the first touch
 
-Examples: 
+Examples:
  - http://www.waveshare.com/product/mini-pc/raspberry-pi/expansions/7inch-hdmi-lcd-b.htm
  - http://www.eleduino.com/7-0-inch-Hdmi-touch-with-USB-touch-Display-Support-Raspberry-pi-Bnana-PI-Banana-Pro-Beaglebone-bone-p10442.html
 
@@ -57,6 +57,8 @@ calibrate using whatever calibration program you fancy, uncomment the calibratio
 NOTE: Updated driver with the following changes:
 * removed multitouch support
 * hardcoded event transformation for Eleduino7" in JiveLite (see https://sites.google.com/site/picoreplayer/home)
+* (kbaniak) corrected managing /dev/hidrawX device handling with 'data ready for reading' polling. Now we read cahr device when data is available. No more buffer overlap and truncated messages.
+* (kbaniak) added hidraw data parsing routine and provided more debug
 
 links:
 * Original driver: https://github.com/bsteinsbo/rpi_touch_driver

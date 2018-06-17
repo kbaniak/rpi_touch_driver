@@ -53,25 +53,49 @@
 #include <syslog.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <poll.h>
 
 #define die(str, ...) do { \
-        perror(str); \
-	syslog(LOG_ERR, str, ##__VA_ARGS__); \
-        exit(EXIT_FAILURE); \
-    } while(0)
+  perror(str); \
+  syslog(LOG_ERR, str, ##__VA_ARGS__); \
+  exit(EXIT_FAILURE); \
+} while(0)
 
 #define croak(str, ...) do { \
-        perror(str); \
-	syslog(LOG_ERR, str, ##__VA_ARGS__); \
-    } while(0)
+  perror(str); \
+  syslog(LOG_ERR, str, ##__VA_ARGS__); \
+} while(0)
+
+#define info(str, ...) do { \
+  syslog(LOG_INFO, str, ##__VA_ARGS__); \
+} while(0)
 
 int uinput_fd;
 int usbraw_fd;
 int fifo_fd;
+int debug = 0;
 
 #define EVENT_DEBUG 0
-#define CORRECTION_X 1.3f
-#define CORRECTION_Y 1.3f
+
+/*
+ * use those values to correct the output from touchpanel
+ */
+#define CORRECTION_X 1.0f
+#define CORRECTION_Y 1.0f
+
+void
+closedesc()
+{
+  if (usbraw_fd >= 0) {
+    close(usbraw_fd);
+    usbraw_fd = -1;
+  }
+  if (uinput_fd >= 0) {
+    ioctl(uinput_fd, UI_DEV_DESTROY);
+    close(uinput_fd);
+    uinput_fd = -1;
+  }
+}
 
 int send_uevent(int fd, __u16 type, __u16 code, __s32 value)
 {
@@ -136,6 +160,37 @@ int send_uevent(int fd, __u16 type, __u16 code, __s32 value)
 	}
 
 	return 0;
+}
+/* process data chunk */
+void parse_blob(int ofd, char *data, int dlen)
+{
+  int i = 0;
+  int dleft = dlen;
+  int state[5];
+  int x[5];
+  int y[5];
+  int mode;
+
+  if (dlen<25) return;
+  for (i=0; i<=(dlen-25); i++){
+    if (data[i] == 0xaa && data[i+6] == 0xbb && dleft >=25){
+      if (debug) info("touch data found at %d: mode: %d", i, data[i+1]);
+      mode = data[i+1];
+      state[0] = (data[i+7] & 1) != 0;
+      x[0] = data[i+2] * 256 + data[i+3];
+      y[0] = data[i+4] * 256 + data[i+5];
+      if (mode) {
+         /* touch operation started */
+         send_uevent(uinput_fd, EV_ABS, ABS_X, x[0] * CORRECTION_X);
+         send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0] * CORRECTION_Y);
+         send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
+      } else {
+         /* touch operation finished */
+         send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
+      }
+      send_uevent(uinput_fd, EV_SYN, 0, 0);
+    }
+  }
 }
 
 /* Open hidraw device and translate events until failure */
@@ -212,87 +267,43 @@ void handle_hidraw_device(char *path)
 	if (ioctl(uinput_fd, UI_DEV_CREATE) < 0)
 		die("error: create\n");
 
+  /* polling structures */
+  char bdata[1024];
+  int retval;
+  struct pollfd fds[1];
+
+  atexit(closedesc);
 
 	/* Enter input loop */
 	while (1) {
-		int state[5];
-		int x[5];
-		int y[5];
-		int i;
-		
-		int n = read(usbraw_fd, data, sizeof(data));
-		if (n < 0)
-			break; /* Unplug? */
-		if (n != sizeof(data)) {
-			croak("Short input : %d\n", n);
-			continue;
-		}
-		if(data[24] == 0) {
-		  continue;
-		}
+    memset(&fds, 0, sizeof(fds));
+    fds[0].fd = usbraw_fd;
+    fds[0].events = POLLIN;
 
-		/* Decode raw data */
-		state[0] = (data[7] & 1) != 0;
-		x[0] = data[2] * 256 + data[3];
-		y[0] = data[4] * 256 + data[5];
-		//for (i = 0; i < 4; i++) {
-		//	state[i + 1] = (data[7] & (2 << i)) != 0;
-		//	x[i + 1] = data[i * 2 + 8] * 256 + data[i * 2 + 9];
-		//	y[i + 1] = data[i * 2 + 10] * 256 + data[i * 2 + 11];
-		//}
-		//send_uevent(uinput_fd, EV_ABS, ABS_X, x[0]);
-		//send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0]);
-		if (data[1]) {
-		  send_uevent(uinput_fd, EV_ABS, ABS_X, x[0] * CORRECTION_X);
-		  send_uevent(uinput_fd, EV_ABS, ABS_Y, y[0] * CORRECTION_Y);
-		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
-		} else {
-		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
-		}
-		send_uevent(uinput_fd, EV_SYN, 0, 0);
-		/*if(data[1]) {
+    if((retval = poll(fds, 1, 500)) == -1) {
+      croak("hidraw device polling error");
+      break;
+    } else if (retval) {
+      int n = read(usbraw_fd, bdata, sizeof(bdata));
+      if (n < 0) {
+        break; /* Unplug? */
+      }
+      if (debug)
+        info(". data read: %d bytes", n);
+      if (n>=25)
+        parse_blob(uinput_fd, bdata, n);
+    } else {
+      // timeout
+    }
+  }
 
-		send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
-		send_uevent(uinput_fd, EV_SYN, 0, 0);
-		} else {
-		  send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
-		  send_uevent(uinput_fd, EV_SYN, 0, 0);
-		  }*/
-		//send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
-
-		/* Send input events */
-		/*for (i = 0; i < 5; i++) {
-			if (state[i]) {
-				send_uevent(uinput_fd, EV_ABS, ABS_X, x[i]);
-				send_uevent(uinput_fd, EV_ABS, ABS_Y, y[i]);
-				send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 1);
-				break;
-			}
-			}*/
-		/*if (i == 5)
-			send_uevent(uinput_fd, EV_KEY, BTN_TOUCH, 0);
-		for (i = 0; i < 5; i++) {
-			if (state[i]) {
-				send_uevent(uinput_fd, EV_ABS, ABS_MT_SLOT, i);
-				send_uevent(uinput_fd, EV_ABS, ABS_MT_TRACKING_ID, i);
-				send_uevent(uinput_fd, EV_ABS, ABS_MT_POSITION_X, x[i]);
-				send_uevent(uinput_fd, EV_ABS, ABS_MT_POSITION_Y, y[i]);
-			} else if (prev_state[i]) {
-				send_uevent(uinput_fd, EV_ABS, ABS_MT_SLOT, i);
-				send_uevent(uinput_fd, EV_ABS, ABS_MT_TRACKING_ID, -1);
-			}
-			prev_state[i] = state[i];
-			}*/
-		//send_uevent(uinput_fd, EV_SYN, SYN_MT_REPORT, 0);
-		usleep(15000);
-	}
-	if (usbraw_fd >= 0)
-		close(usbraw_fd);
-	if (uinput_fd >= 0) {
-		ioctl(uinput_fd, UI_DEV_DESTROY);
-		close(uinput_fd);
-	}
-	
+  /* close open descriptors */
+  if (usbraw_fd >= 0)
+    close(usbraw_fd);
+  if (uinput_fd >= 0) {
+    ioctl(uinput_fd, UI_DEV_DESTROY);
+    close(uinput_fd);
+  }
 }
 
 char rpi_dev[64];
@@ -369,6 +380,11 @@ int main(int argc, char **argv)
 		if (daemon(0, 0))
 			die("error: daemonize\n");
 	}
+  if ((argc > 1 && strlen(argv[1]) > 1 && !strcmp(argv[1], "-D")))
+  {
+    info(". enabling debug");
+    debug = 1;
+  }
 
 	/* Create the udev object */
 	udev = udev_new();
@@ -393,7 +409,7 @@ int main(int argc, char **argv)
 		if (devname != NULL)
 			handle_hidraw_device(devname);
 	}
-	
+
 	udev_unref(udev);
 	return 0;
 }
